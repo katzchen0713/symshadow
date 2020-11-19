@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+
+import click
+import semver
+import requests
+import validators
+import sys, os
+import sqlite3
+import urllib.request as urllib2
+from time import time
+from urllib.parse import urlparse
+from prettytable import PrettyTable
+
+
+CREATE_URL_TABLE = "CREATE TABLE IF NOT EXISTS urls (url text, body_size real, domain text, page_load_time real)"
+INSERT_URL_DATA = 'INSERT INTO urls VALUES (?, ?, ?, ?)'
+SELECT_URL_BODY = 'SELECT url, body_size FROM urls'
+SELECT_DOMAIN_PAGE_LOAD = 'SELECT domain, avg(page_load_time) FROM urls GROUP BY domain'
+
+def get_url_info(url):
+	domain = urlparse(url).netloc
+	stream = urllib2.urlopen(url)
+	start_time = time()
+	output = stream.read()
+	body_size = len(output)
+	end_time = time()
+	stream.close()
+	page_load_time = end_time-start_time
+
+	return body_size, domain, page_load_time
+
+def register_url(c, url):
+    if validators.url(url):
+    	body_size, domain, page_load_time = get_url_info(url)
+    	c.execute(INSERT_URL_DATA, (url, body_size, domain, page_load_time))
+    else:
+    	sys.exit(os.EX_DATAERR)
+
+def display_urls(c):
+	c.execute(SELECT_URL_BODY)
+	all_urls = c.fetchall()
+	url_table = PrettyTable()
+	url_table.field_names = ["URL", "Body Size"]
+	url_table.add_rows(all_urls)
+	click.echo(url_table)
+
+def display_domains(c):
+	c.execute(SELECT_DOMAIN_PAGE_LOAD)
+	all_domains = c.fetchall()
+	domain_table = PrettyTable()
+	domain_table.field_names = ["Domain", "Page Load Time"]
+	domain_table.add_rows(all_domains)
+	click.echo(domain_table)
+
+@click.command()
+@click.argument('command', required=0)
+@click.argument('param', required=0)
+def main(command, param):
+	print(command, param)
+	conn = sqlite3.connect(".config/urls.db")
+	c = conn.cursor()
+	c.execute(CREATE_URL_TABLE)
+	if command == "version":
+		click.echo("1.0.0") 
+	if command == "register":
+		register_url(c, param)
+	if command == "measure":
+		display_urls(c)
+	if command == "race":
+		display_domains(c)
+	conn.commit()
+	conn.close()
+
+
+if __name__ == "__main__":
+    main()
